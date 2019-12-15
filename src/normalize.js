@@ -9,8 +9,55 @@ const extractFields = async (
   auth,
   item
 ) => {
+  const handleMediaType = async (key, field, node = item) => {
+    let fileNodeID
+    // using field on the cache key for multiple image field
+    const mediaDataCacheKey = `strapi-media-${item.id}-${key}`
+    const cacheMediaData = await cache.get(mediaDataCacheKey)
+
+    // If we have cached media data and it wasn't modified, reuse
+    // previously created file node to not try to redownload
+    if (cacheMediaData && field.updatedAt === cacheMediaData.updatedAt) {
+      fileNodeID = cacheMediaData.fileNodeID
+      touchNode({ nodeId: cacheMediaData.fileNodeID })
+    }
+
+    // If we don't have cached data, download the file
+    if (!fileNodeID) {
+      try {
+        // full media url
+        const source_url = `${field.url.startsWith('http') ? '' : apiURL}${
+          field.url
+        }`
+        const fileNode = await createRemoteFileNode({
+          url: source_url,
+          store,
+          cache,
+          createNode,
+          auth,
+        })
+
+        // If we don't have cached data, download the file
+        if (fileNode) {
+          fileNodeID = fileNode.id
+
+          await cache.set(mediaDataCacheKey, {
+            fileNodeID,
+            modified: field.updatedAt,
+          })
+        }
+      } catch (e) {
+        // Ignore
+      }
+    }
+    if (fileNodeID) {
+      node[`${key}___NODE`] = fileNodeID
+    }
+  }
+
   for (const key of Object.keys(item)) {
     const field = item[key]
+
     if (Array.isArray(field)) {
       // add recursion to fetch nested strapi references
       await Promise.all(
@@ -18,52 +65,16 @@ const extractFields = async (
           extractFields(apiURL, store, cache, createNode, touchNode, auth, f)
         )
       )
-    } else {
+    } else if (field !== null && field.hasOwnProperty('mime')) {
       // image fields have a mime property among other
       // maybe should find a better test
-      if (field !== null && field.hasOwnProperty('mime')) {
-        let fileNodeID
-        // using field on the cache key for multiple image field
-        const mediaDataCacheKey = `strapi-media-${item.id}-${key}`
-        const cacheMediaData = await cache.get(mediaDataCacheKey)
-
-        // If we have cached media data and it wasn't modified, reuse
-        // previously created file node to not try to redownload
-        if (cacheMediaData && field.updatedAt === cacheMediaData.updatedAt) {
-          fileNodeID = cacheMediaData.fileNodeID
-          touchNode({ nodeId: cacheMediaData.fileNodeID })
-        }
-
-        // If we don't have cached data, download the file
-        if (!fileNodeID) {
-          try {
-            // full media url
-            const source_url = `${field.url.startsWith('http') ? '' : apiURL}${
-              field.url
-            }`
-            const fileNode = await createRemoteFileNode({
-              url: source_url,
-              store,
-              cache,
-              createNode,
-              auth,
-            })
-
-            // If we don't have cached data, download the file
-            if (fileNode) {
-              fileNodeID = fileNode.id
-
-              await cache.set(mediaDataCacheKey, {
-                fileNodeID,
-                modified: field.updatedAt,
-              })
-            }
-          } catch (e) {
-            // Ignore
-          }
-        }
-        if (fileNodeID) {
-          item[`${key}___NODE`] = fileNodeID
+      await handleMediaType(key, field)
+    } else if (field !== null && typeof field === 'object') {
+      // Else it could be group of fields
+      for (let key of Object.keys(field)) {
+        const nestedField = field[key]
+        if (nestedField && nestedField.hasOwnProperty('mime')) {
+          await handleMediaType(key, nestedField, field)
         }
       }
     }
