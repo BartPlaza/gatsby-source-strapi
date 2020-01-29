@@ -39,7 +39,8 @@ module.exports = async ({
 const clean = item => {
   forEach(item, (value, key) => {
     if (startsWith(key, `__`)) {
-      delete item[key]
+      // Need for fetch component name
+      // delete item[key]
     } else if (startsWith(key, `_`)) {
       delete item[key]
       item[key.slice(1)] = value
