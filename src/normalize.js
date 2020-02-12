@@ -9,6 +9,20 @@ const extractFields = async (
   auth,
   item
 ) => {
+
+  const parsePotentialComponent = async (field) => {
+    if (field !== null && typeof field === 'object') {
+      for (let key of Object.keys(field)) {
+        const nestedField = field[key];
+        if (nestedField && nestedField.hasOwnProperty('mime')) {
+          await handleMediaType(key, nestedField, field)
+        } else {
+          await parsePotentialComponent(nestedField)
+        }
+      }
+    }
+  };
+
   const handleMediaType = async (key, field, node = item) => {
     let fileNodeID
     // using field on the cache key for multiple image field
@@ -69,17 +83,12 @@ const extractFields = async (
       // image fields have a mime property among other
       // maybe should find a better test
       await handleMediaType(key, field)
-    } else if (field !== null && typeof field === 'object') {
-      // Else it could be group of fields
-      for (let key of Object.keys(field)) {
-        const nestedField = field[key]
-        if (nestedField && nestedField.hasOwnProperty('mime')) {
-          await handleMediaType(key, nestedField, field)
-        }
-      }
+    } else {
+      // Else it could be component
+      await parsePotentialComponent(field);
     }
   }
-}
+};
 
 // Downloads media from image type fields
 exports.downloadMediaFiles = async ({
